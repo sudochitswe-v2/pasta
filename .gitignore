@@ -1,12 +1,9 @@
 # Binaries and build artifacts
-bin/
 dist/
-*.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-pasta
 
 # Test artifacts and coverage
 *.test
