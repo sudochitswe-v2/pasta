@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pasta/pasta/clipboard"
-	"github.com/pasta/pasta/injector"
-	"github.com/pasta/pasta/translator"
+	"github.com/sudochitswe-v2/pasta/clipboard"
+	"github.com/sudochitswe-v2/pasta/injector"
+	"github.com/sudochitswe-v2/pasta/translator"
 )
 
 // Defaults for hardening (Phase 7).

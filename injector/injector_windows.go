@@ -7,7 +7,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/pasta/pasta/translator"
+	"github.com/sudochitswe-v2/pasta/translator"
 	"golang.org/x/sys/windows"
 )
 

@@ -1,4 +1,4 @@
-MODULE := github.com/pasta/pasta
+MODULE := github.com/sudochitswe-v2/pasta
 BIN := bin
 
 .PHONY: all build-linux build-windows test vet run clean

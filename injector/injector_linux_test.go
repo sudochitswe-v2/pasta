@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/pasta/pasta/translator"
+	"github.com/sudochitswe-v2/pasta/translator"
 )
 
 func TestUinputStructSizes(t *testing.T) {

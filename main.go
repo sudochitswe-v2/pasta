@@ -22,9 +22,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pasta/pasta/clipboard"
-	"github.com/pasta/pasta/injector"
-	"github.com/pasta/pasta/server"
+	"github.com/sudochitswe-v2/pasta/clipboard"
+	"github.com/sudochitswe-v2/pasta/injector"
+	"github.com/sudochitswe-v2/pasta/server"
 )
 
 //go:embed web/index.html web/style.css web/app.js

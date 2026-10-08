@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pasta/pasta/injector"
+	"github.com/sudochitswe-v2/pasta/injector"
 )
 
 type mockClipboard struct {

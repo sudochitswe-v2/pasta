@@ -1,4 +1,4 @@
-module github.com/pasta/pasta
+module github.com/sudochitswe-v2/pasta
 
 go 1.21
 
