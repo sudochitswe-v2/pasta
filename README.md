@@ -148,8 +148,22 @@ systemctl --user daemon-reload
 
 ### Windows (run at logon, no console window)
 
+To install Pasta as a silent background process that automatically starts when you log in:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File deploy\install.ps1
+```
+
+The installer will:
+1. Install both `pasta.exe` (the silent background daemon) and `pasta-cli.exe` (the console utility) to `%LocalAppData%\Pasta`.
+2. Add the installation directory to your user `PATH` environment variable.
+3. Configure `pasta.exe` to start silently on logon via the registry.
+4. Immediately launch the background daemon for you.
+
+**Getting your Magic Link (QR Code) on Windows:**
+Because `pasta.exe` runs silently as a Windows GUI application, running it from a terminal will discard all output. Instead, open PowerShell anywhere and use the CLI utility:
+```powershell
+pasta-cli --qr
 ```
 
 ## Security notes
