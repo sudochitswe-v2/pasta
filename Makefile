@@ -10,6 +10,7 @@ build-linux:
 
 build-windows:
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H=windowsgui" -o $(BIN)/pasta.exe .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o $(BIN)/pasta-cli.exe .
 
 test:
 	go test ./...
