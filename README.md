@@ -22,6 +22,22 @@ Open the printed URL on your phone, pick a mode, type, hit **Send**.
 make build-windows      # -> bin\pasta.exe (stripped, no console window)
 ```
 
+## First run: pairing your phone (`--qr`)
+
+The daemon is locked by a persistent token (no passwords). On first run it
+generates a random 32-byte token at `~/.config/pasta/config.json`
+(dir `0700`, file `0600`) and reuses it forever after.
+
+```sh
+./bin/pasta --qr            # (or --setup) prints a Magic Link + terminal QR, then exits
+```
+
+Scan the QR (or open the link) on the same Wi-Fi. The link
+`http://<lan-ip>:8765/?token=…` sets an `HttpOnly` session cookie and
+redirects to `/`, so the token leaves browser history and later API calls
+just work. API clients can also send `Authorization: Bearer <token>`.
+Without a valid token every route (UI included) returns `401`.
+
 ## Modes
 
 | Mode | Endpoint | How it works | Best for |
@@ -42,6 +58,7 @@ fail loudly with `400` naming the character — no silent drops.
 | `--no-inject` | off | Clipboard-only mode (disables `Ctrl+V` and `/api/type` → `503`) |
 | `--max-bytes` | `65536` | Max paste payload in bytes |
 | `--max-type-bytes` | `4096` | Max stealth-type payload (typing is paced ~2ms/event) |
+| `--qr`, `--setup` | off | Print the Magic Link QR for this LAN and exit (no daemon) |
 | `--verbose` | off | Request logging (stderr only — **no log files ever**) |
 
 ## API
@@ -137,9 +154,11 @@ powershell -ExecutionPolicy Bypass -File deploy\install.ps1
 
 ## Security notes
 
-- Default `--bind 0.0.0.0` exposes the server to your LAN: anyone on the
-  network can write to your clipboard and inject keystrokes. Use only on
-  trusted networks, or bind `127.0.0.1` + SSH tunnel.
+- LAN exposure: `--bind 0.0.0.0` (default) listens on all interfaces, but
+  every route now requires the token — anonymous requests get `401`. Still,
+  use trusted networks only (traffic is plain HTTP).
+- Token storage: `~/.config/pasta/config.json`, `0600`. Anyone with the
+  token (or your unlocked phone session) can inject keystrokes.
 - Windows UIPI: `SendInput` is blocked into **elevated** (Administrator)
   windows unless pasta also runs elevated. Clipboard sync still succeeds —
   paste manually with `Ctrl+V` in that case.

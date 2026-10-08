@@ -51,6 +51,9 @@ type Options struct {
 	RateWindow time.Duration
 	// NoInject skips keystroke injection (clipboard-only mode).
 	NoInject bool
+	// Token enables auth on every route when non-empty (see AuthMiddleware).
+	// Empty disables auth — tests only; the daemon always sets a token.
+	Token string
 	// Verbose enables request logging.
 	Verbose bool
 	// Logger receives non-request log lines; nil means log.Default().
@@ -266,12 +269,13 @@ func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// Routes returns the API handler tree (static UI is served by main).
+// Routes returns the API handler tree (static UI is served by main),
+// wrapped in auth when Options.Token is set.
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/sync", s.HandleSync) // compat alias of /api/paste
 	mux.HandleFunc("/api/paste", s.HandleSync)
 	mux.HandleFunc("/api/type", s.HandleType)
 	mux.HandleFunc("/api/health", s.HandleHealth)
-	return mux
+	return AuthMiddleware(s.opts.Token, mux)
 }

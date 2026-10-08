@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mdp/qrterminal/v3"
 	"github.com/sudochitswe-v2/pasta/clipboard"
 	"github.com/sudochitswe-v2/pasta/injector"
 	"github.com/sudochitswe-v2/pasta/server"
@@ -45,8 +46,19 @@ func run() error {
 		noInject     = flag.Bool("no-inject", false, "clipboard-only mode: skip Ctrl+V keystroke injection")
 		maxBytes     = flag.Int("max-bytes", server.DefaultMaxTextBytes, "max paste payload in bytes")
 		maxTypeBytes = flag.Int("max-type-bytes", server.DefaultMaxTypeBytes, "max stealth-type payload in bytes")
+		qr           = flag.Bool("qr", false, "print a Magic Link QR for this LAN and exit (no daemon)")
+		setup        = flag.Bool("setup", false, "alias of --qr")
 	)
 	flag.Parse()
+
+	if *qr || *setup {
+		return runQR(*port)
+	}
+
+	token, err := loadOrCreateToken()
+	if err != nil {
+		return err
+	}
 
 	logger := log.New(os.Stderr, "pasta: ", log.LstdFlags)
 	if !*verbose {
@@ -84,6 +96,7 @@ func run() error {
 		MaxTypeBytes: *maxTypeBytes,
 		NoInject:     *noInject,
 		Verbose:      *verbose,
+		Token:        token,
 	})
 
 	mux := http.NewServeMux()
@@ -92,7 +105,7 @@ func run() error {
 
 	httpSrv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           server.AuthMiddleware(token, mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -108,7 +121,7 @@ func run() error {
 	}()
 
 	if *bind == "0.0.0.0" {
-		fmt.Printf("pasta: listening on http://<lan-ip>:%d (bound to all interfaces; see README security notes)\n", *port)
+		fmt.Printf("pasta: listening on 0.0.0.0:%d (all interfaces) — run `pasta --qr` to get the current Magic Link for this network\n", *port)
 	} else {
 		fmt.Printf("pasta: listening on http://%s\n", addr)
 	}
@@ -154,3 +167,46 @@ func serveWeb(w http.ResponseWriter, r *http.Request) {
 type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
+
+// lanIP resolves the active LAN address by asking the kernel which source
+// address it would use toward the internet. No packets are sent; this only
+// needs a default route, and beats enumerating interfaces (Docker bridges,
+// VPNs, down links).
+func lanIP() (string, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "", fmt.Errorf("qr: cannot determine LAN IP (no default route?): %w", err)
+	}
+	defer conn.Close()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return "", fmt.Errorf("qr: unexpected local address %T", conn.LocalAddr())
+	}
+	return addr.IP.String(), nil
+}
+
+// magicLink builds the authenticated URL encoded in the --qr output.
+func magicLink(ip string, port int, token string) string {
+	return fmt.Sprintf("http://%s:%d/?token=%s", ip, port, token)
+}
+
+// runQR prints the Magic Link QR for the current network and exits without
+// touching the clipboard, injector, or HTTP server.
+func runQR(port int) error {
+	token, err := loadOrCreateToken()
+	if err != nil {
+		return err
+	}
+	ip, err := lanIP()
+	if err != nil {
+		return err
+	}
+	link := magicLink(ip, port, token)
+	fmt.Printf("pasta: Magic Link (same Wi-Fi):\n%s\n\n", link)
+	qrterminal.GenerateWithConfig(link, qrterminal.Config{
+		Level:      qrterminal.M,
+		Writer:     os.Stdout,
+		HalfBlocks: true,
+	})
+	return nil
+}
