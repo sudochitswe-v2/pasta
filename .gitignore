@@ -1,0 +1,43 @@
+# Binaries and build artifacts
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+pasta
+
+# Test artifacts and coverage
+*.test
+*.out
+coverage.html
+profile.out
+
+# Go workspace and vendor
+go.work
+go.work.sum
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary / scratch files
+scratch/
+tmp/
+*.log

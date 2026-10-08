@@ -1,0 +1,20 @@
+[Unit]
+Description=Pasta Remote Input Daemon
+Documentation=https://github.com/pasta/pasta
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/pasta
+Restart=on-failure
+RestartSec=2
+# Inherit the user's graphical session so X11/Wayland APIs work.
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+# No log files: journal only.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
