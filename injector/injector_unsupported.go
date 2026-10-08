@@ -12,4 +12,7 @@ func New() (Injector, error) {
 }
 
 func (u *unsupportedInjector) Paste() error { return ErrUnavailable }
-func (u *unsupportedInjector) Close() error { return nil }
+
+// Type is unavailable off Linux/Windows.
+func (u *unsupportedInjector) Type(_ string) error { return ErrUnavailable }
+func (u *unsupportedInjector) Close() error        { return nil }

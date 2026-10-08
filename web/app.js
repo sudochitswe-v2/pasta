@@ -5,6 +5,26 @@ const sendEl = document.getElementById("send");
 const toastEl = document.getElementById("toast");
 const statusEl = document.getElementById("status");
 const statusTextEl = document.getElementById("status-text");
+const modePasteEl = document.getElementById("mode-paste");
+const modeTypeEl = document.getElementById("mode-type");
+const hintEl = document.getElementById("hint");
+
+let mode = "paste"; // "paste" (Fast Paste) | "type" (Stealth Type)
+
+function setMode(next) {
+  mode = next;
+  const isType = mode === "type";
+  modePasteEl.classList.toggle("active", !isType);
+  modeTypeEl.classList.toggle("active", isType);
+  modePasteEl.setAttribute("aria-pressed", String(!isType));
+  modeTypeEl.setAttribute("aria-pressed", String(isType));
+  hintEl.textContent = isType
+    ? "Stealth Type: typed as hardware keys · best for short secrets"
+    : "Ctrl+Enter to send · text appears at the host cursor";
+}
+
+modePasteEl.addEventListener("click", () => setMode("paste"));
+modeTypeEl.addEventListener("click", () => setMode("type"));
 
 let toastTimer = null;
 
@@ -22,16 +42,21 @@ async function send() {
     textEl.focus();
     return;
   }
+  const endpoint = mode === "type" ? "/api/type" : "/api/paste";
   sendEl.disabled = true;
   try {
-    const res = await fetch("/api/sync", {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.success) {
-      toast(data.injected ? "Pasted ✓" : "Copied (paste manually) ✓", "ok");
+      if (mode === "type") {
+        toast("Typed ✓ (" + (data.typed || "?") + " chars)", "ok");
+      } else {
+        toast(data.injected ? "Pasted ✓" : "Copied (paste manually) ✓", "ok");
+      }
       textEl.value = "";
     } else {
       toast(data.error || ("Send failed (" + res.status + ")"), "err");

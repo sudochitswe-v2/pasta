@@ -1,11 +1,15 @@
 // Package server implements the pasta HTTP API.
 //
-// POST /api/sync accepts {"text": "..."}, writes it to the system clipboard
-// via native APIs, then triggers a Ctrl+V keystroke into the active window.
+// POST /api/paste accepts {"text": "..."}, writes it to the system clipboard
+// via native APIs, then triggers a Ctrl+V keystroke (Fast Paste mode).
+// POST /api/sync is a backward-compatible alias of /api/paste.
+// POST /api/type accepts {"text": "..."} and emits it as raw hardware
+// keystrokes without touching the clipboard (Stealth Type mode).
 package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -15,6 +19,7 @@ import (
 
 	"github.com/pasta/pasta/clipboard"
 	"github.com/pasta/pasta/injector"
+	"github.com/pasta/pasta/translator"
 )
 
 // Defaults for hardening (Phase 7).
@@ -25,6 +30,10 @@ const (
 	DefaultRateLimit = 30
 	// DefaultRateWindow is the rate-limit window.
 	DefaultRateWindow = time.Minute
+	// DefaultMaxTypeBytes caps a single Stealth Type payload. Typing is
+	// paced at ~2ms per raw event, so large payloads take minutes; use
+	// Fast Paste for bulk text and Type for short secrets.
+	DefaultMaxTypeBytes = 4 * 1024
 	// clipboardSettleDelay lets the clipboard propagate before Ctrl+V.
 	clipboardSettleDelay = 50 * time.Millisecond
 )
@@ -33,6 +42,8 @@ const (
 type Options struct {
 	// MaxTextBytes caps payload size; <=0 means DefaultMaxTextBytes.
 	MaxTextBytes int
+	// MaxTypeBytes caps Stealth Type payloads; <=0 means DefaultMaxTypeBytes.
+	MaxTypeBytes int
 	// RateLimit caps requests per window per IP; <=0 means DefaultRateLimit.
 	// Negative disables rate limiting (tests only).
 	RateLimit int
@@ -50,6 +61,9 @@ func (o *Options) withDefaults() Options {
 	out := *o
 	if out.MaxTextBytes <= 0 {
 		out.MaxTextBytes = DefaultMaxTextBytes
+	}
+	if out.MaxTypeBytes <= 0 {
+		out.MaxTypeBytes = DefaultMaxTypeBytes
 	}
 	if out.RateLimit <= 0 && o.RateLimit == 0 {
 		out.RateLimit = DefaultRateLimit
@@ -97,6 +111,7 @@ type syncRequest struct {
 type syncResponse struct {
 	Success  bool   `json:"success"`
 	Injected bool   `json:"injected,omitempty"`
+	Typed    int    `json:"typed,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -134,18 +149,16 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// HandleSync serves POST /api/sync.
-func (s *Server) HandleSync(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, syncResponse{Error: "method not allowed"})
-		return
-	}
+// decodeTextRequest applies the shared validation for POST text endpoints:
+// rate limiting, bounded body, JSON decoding, and empty/oversize checks.
+// It reports the failure response itself and returns ok=false on error.
+func (s *Server) decodeTextRequest(w http.ResponseWriter, r *http.Request, maxBytes int) (string, bool) {
 	if !s.allow(clientIP(r)) {
 		writeJSON(w, http.StatusTooManyRequests, syncResponse{Error: "rate limit exceeded"})
-		return
+		return "", false
 	}
 	// Bound decode memory: JSON overhead above the text limit is small.
-	r.Body = http.MaxBytesReader(w, r.Body, int64(s.opts.MaxTextBytes)+4096)
+	r.Body = http.MaxBytesReader(w, r.Body, int64(maxBytes)+4096)
 	var req syncRequest
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -156,18 +169,32 @@ func (s *Server) HandleSync(w http.ResponseWriter, r *http.Request) {
 		} else {
 			writeJSON(w, http.StatusBadRequest, syncResponse{Error: "invalid JSON body"})
 		}
-		return
+		return "", false
 	}
 	if strings.TrimSpace(req.Text) == "" {
 		writeJSON(w, http.StatusBadRequest, syncResponse{Error: "text must not be empty"})
+		return "", false
+	}
+	if len(req.Text) > maxBytes {
+		writeJSON(w, http.StatusRequestEntityTooLarge, syncResponse{Error: "text exceeds size limit"})
+		return "", false
+	}
+	return req.Text, true
+}
+
+// HandleSync serves POST /api/paste (Fast Paste mode) and its
+// backward-compatible alias POST /api/sync.
+func (s *Server) HandleSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, syncResponse{Error: "method not allowed"})
 		return
 	}
-	if len(req.Text) > s.opts.MaxTextBytes {
-		writeJSON(w, http.StatusRequestEntityTooLarge, syncResponse{Error: "text exceeds size limit"})
+	text, ok := s.decodeTextRequest(w, r, s.opts.MaxTextBytes)
+	if !ok {
 		return
 	}
 
-	if err := s.clipboard.SetText(req.Text); err != nil {
+	if err := s.clipboard.SetText(text); err != nil {
 		s.log.Printf("clipboard error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, syncResponse{Error: "failed to set clipboard"})
 		return
@@ -185,9 +212,49 @@ func (s *Server) HandleSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.opts.Verbose {
-		s.log.Printf("sync from %s: %d bytes (injected=%v)", clientIP(r), len(req.Text), injected)
+		s.log.Printf("sync from %s: %d bytes (injected=%v)", clientIP(r), len(text), injected)
 	}
 	writeJSON(w, http.StatusOK, syncResponse{Success: true, Injected: injected})
+}
+
+// HandleType serves POST /api/type (Stealth Type mode): text is emitted as
+// raw hardware keystrokes without touching the clipboard.
+func (s *Server) HandleType(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, syncResponse{Error: "method not allowed"})
+		return
+	}
+	if s.injector == nil || s.opts.NoInject {
+		writeJSON(w, http.StatusServiceUnavailable, syncResponse{Error: "stealth type unavailable (injection disabled)"})
+		return
+	}
+	text, ok := s.decodeTextRequest(w, r, s.opts.MaxTypeBytes)
+	if !ok {
+		return
+	}
+	if _, err := translator.Translate(text); err != nil {
+		var uerr *translator.UnsupportedError
+		if errors.As(err, &uerr) {
+			writeJSON(w, http.StatusBadRequest, syncResponse{Error: err.Error()})
+		} else {
+			writeJSON(w, http.StatusBadRequest, syncResponse{Error: "invalid text"})
+		}
+		return
+	}
+	if err := s.injector.Type(text); err != nil {
+		var uerr *translator.UnsupportedError
+		if errors.As(err, &uerr) {
+			writeJSON(w, http.StatusBadRequest, syncResponse{Error: err.Error()})
+			return
+		}
+		s.log.Printf("type error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, syncResponse{Error: "failed to type text"})
+		return
+	}
+	if s.opts.Verbose {
+		s.log.Printf("type from %s: %d runes", clientIP(r), len([]rune(text)))
+	}
+	writeJSON(w, http.StatusOK, syncResponse{Success: true, Injected: true, Typed: len([]rune(text))})
 }
 
 // HandleHealth serves GET /api/health for the UI connection indicator.
@@ -202,7 +269,9 @@ func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
 // Routes returns the API handler tree (static UI is served by main).
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/sync", s.HandleSync)
+	mux.HandleFunc("/api/sync", s.HandleSync) // compat alias of /api/paste
+	mux.HandleFunc("/api/paste", s.HandleSync)
+	mux.HandleFunc("/api/type", s.HandleType)
 	mux.HandleFunc("/api/health", s.HandleHealth)
 	return mux
 }

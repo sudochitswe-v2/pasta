@@ -11,6 +11,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/pasta/pasta/translator"
 	"golang.org/x/sys/unix"
 )
 
@@ -26,12 +27,41 @@ const (
 
 // Event / key codes from <linux/input-event-codes.h>.
 const (
-	evSyn       = 0x00
-	evKey       = 0x01
-	synReport   = 0
-	keyLeftCtrl = 29
-	keyV        = 47
+	evSyn        = 0x00
+	evKey        = 0x01
+	synReport    = 0
+	keyLeftCtrl  = 29
+	keyV         = 47
+	keyLeftShift = 42
+	keyEnter     = 28
+	keyTab       = 15
+	keySpace     = 57
 )
+
+// keyCodeMap translates abstract translator keys to evdev codes.
+// Values verified against <linux/input-event-codes.h>.
+var keyCodeMap = map[translator.KeyCode]uint16{
+	translator.KeyA: 30, translator.KeyB: 48, translator.KeyC: 46,
+	translator.KeyD: 32, translator.KeyE: 18, translator.KeyF: 33,
+	translator.KeyG: 34, translator.KeyH: 35, translator.KeyI: 23,
+	translator.KeyJ: 36, translator.KeyK: 37, translator.KeyL: 38,
+	translator.KeyM: 50, translator.KeyN: 49, translator.KeyO: 24,
+	translator.KeyP: 25, translator.KeyQ: 16, translator.KeyR: 19,
+	translator.KeyS: 31, translator.KeyT: 20, translator.KeyU: 22,
+	translator.KeyV: 47, translator.KeyW: 17, translator.KeyX: 45,
+	translator.KeyY: 21, translator.KeyZ: 44,
+	translator.Key1: 2, translator.Key2: 3, translator.Key3: 4,
+	translator.Key4: 5, translator.Key5: 6, translator.Key6: 7,
+	translator.Key7: 8, translator.Key8: 9, translator.Key9: 10,
+	translator.Key0:     11,
+	translator.KeyMinus: 12, translator.KeyEqual: 13,
+	translator.KeyLeftBrace: 26, translator.KeyRightBrace: 27,
+	translator.KeyBackslash: 43, translator.KeySemicolon: 39,
+	translator.KeyApostrophe: 40, translator.KeyGrave: 41,
+	translator.KeyComma: 51, translator.KeyDot: 52, translator.KeySlash: 53,
+	translator.KeySpace: keySpace, translator.KeyEnter: keyEnter,
+	translator.KeyTab: keyTab, translator.KeyShift: keyLeftShift,
+}
 
 // uinputSetup mirrors `struct uinput_setup` (88 + 4 = 92 bytes, no padding
 // on amd64: input_id[8] + name[80] + ff_effects_max[4]).
@@ -104,11 +134,20 @@ func (u *uinputInjector) setup() error {
 	if err := ioctl(fd, uiSetEvbit, uintptr(evKey)); err != nil {
 		return fmt.Errorf("injector: UI_SET_EVBIT failed: %w", err)
 	}
-	if err := ioctl(fd, uiSetKeybit, uintptr(keyLeftCtrl)); err != nil {
-		return fmt.Errorf("injector: UI_SET_KEYBIT(LEFTCTRL) failed: %w", err)
+	// Register every key the Stealth Type translator can emit, so the
+	// kernel accepts them as native hardware events.
+	seen := map[uint16]bool{}
+	keys := []uint16{keyLeftCtrl, keyV}
+	for _, code := range keyCodeMap {
+		if !seen[code] {
+			seen[code] = true
+			keys = append(keys, code)
+		}
 	}
-	if err := ioctl(fd, uiSetKeybit, uintptr(keyV)); err != nil {
-		return fmt.Errorf("injector: UI_SET_KEYBIT(V) failed: %w", err)
+	for _, code := range keys {
+		if err := ioctl(fd, uiSetKeybit, uintptr(code)); err != nil {
+			return fmt.Errorf("injector: UI_SET_KEYBIT(%d) failed: %w", code, err)
+		}
 	}
 	var setup uinputSetup
 	setup.Bustype = 0x03 // BUS_USB
@@ -158,6 +197,38 @@ func (u *uinputInjector) Paste() error {
 		if err := u.emit(s.typ, s.code, s.value); err != nil {
 			return fmt.Errorf("injector: write to /dev/uinput failed: %w", err)
 		}
+	}
+	return nil
+}
+
+// Type implements Injector (Stealth Type mode): every character becomes raw
+// make/break events on the virtual hardware keyboard, paced with
+// micro-sleeps so polling-based apps don't drop input. These events enter
+// through the kernel input layer, bypassing Wayland/X11 user-space
+// restrictions entirely.
+func (u *uinputInjector) Type(text string) error {
+	events, err := translator.Translate(text)
+	if err != nil {
+		return err
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.closed {
+		return errors.New("injector: device closed")
+	}
+	for _, ev := range events {
+		code, ok := keyCodeMap[ev.Key]
+		if !ok {
+			return fmt.Errorf("injector: no evdev mapping for key %d", ev.Key)
+		}
+		var value int32
+		if ev.Down {
+			value = 1
+		}
+		if err := u.emit(evKey, code, value); err != nil {
+			return fmt.Errorf("injector: write to /dev/uinput failed: %w", err)
+		}
+		time.Sleep(translator.DefaultKeyDelay)
 	}
 	return nil
 }

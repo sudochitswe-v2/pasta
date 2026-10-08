@@ -17,8 +17,13 @@
   <label class="sr" for="text">Text to paste</label>
   <textarea id="text" rows="8" placeholder="Type or paste text here…" autofocus autocomplete="off" autocapitalize="sentences"></textarea>
 
+  <div class="mode" role="group" aria-label="Send mode">
+    <button id="mode-paste" type="button" class="active" aria-pressed="true">Fast Paste</button>
+    <button id="mode-type" type="button" aria-pressed="false">Stealth Type</button>
+  </div>
+
   <button id="send" type="button">Send&nbsp;⏎</button>
-  <p class="hint">Ctrl+Enter to send · text appears at the host cursor</p>
+  <p class="hint" id="hint">Ctrl+Enter to send · text appears at the host cursor</p>
 </main>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>

@@ -39,11 +39,12 @@ func main() {
 
 func run() error {
 	var (
-		port     = flag.Int("port", 8765, "TCP port to listen on")
-		bind     = flag.String("bind", "0.0.0.0", "address to bind (use 127.0.0.1 to restrict to this host)")
-		verbose  = flag.Bool("verbose", false, "enable request logging (no log files are written)")
-		noInject = flag.Bool("no-inject", false, "clipboard-only mode: skip Ctrl+V keystroke injection")
-		maxBytes = flag.Int("max-bytes", server.DefaultMaxTextBytes, "max paste payload in bytes")
+		port         = flag.Int("port", 8765, "TCP port to listen on")
+		bind         = flag.String("bind", "0.0.0.0", "address to bind (use 127.0.0.1 to restrict to this host)")
+		verbose      = flag.Bool("verbose", false, "enable request logging (no log files are written)")
+		noInject     = flag.Bool("no-inject", false, "clipboard-only mode: skip Ctrl+V keystroke injection")
+		maxBytes     = flag.Int("max-bytes", server.DefaultMaxTextBytes, "max paste payload in bytes")
+		maxTypeBytes = flag.Int("max-type-bytes", server.DefaultMaxTypeBytes, "max stealth-type payload in bytes")
 	)
 	flag.Parse()
 
@@ -80,6 +81,7 @@ func run() error {
 
 	srv := server.New(cb, inj, server.Options{
 		MaxTextBytes: *maxBytes,
+		MaxTypeBytes: *maxTypeBytes,
 		NoInject:     *noInject,
 		Verbose:      *verbose,
 	})

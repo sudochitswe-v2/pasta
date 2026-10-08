@@ -4,6 +4,7 @@ import "testing"
 
 type stubInjector struct {
 	pastes int
+	typed  []string
 	err    error
 	closed bool
 }
@@ -13,6 +14,14 @@ func (s *stubInjector) Paste() error {
 		return s.err
 	}
 	s.pastes++
+	return nil
+}
+
+func (s *stubInjector) Type(text string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.typed = append(s.typed, text)
 	return nil
 }
 

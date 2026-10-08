@@ -5,6 +5,8 @@ package injector
 import (
 	"testing"
 	"unsafe"
+
+	"github.com/pasta/pasta/translator"
 )
 
 func TestUinputStructSizes(t *testing.T) {
@@ -29,7 +31,25 @@ func TestIoctlNumbers(t *testing.T) {
 	}
 }
 
-// Integration: only runs when /dev/uinput is writable (user in `input` group).
+// Every key the translator can emit must have an evdev mapping, so Type
+// never fails midway through a keystroke stream. Needs no hardware.
+func TestKeyCodeMapCoversTranslator(t *testing.T) {
+	s := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`~-_=+[{]}\\|;:'\",<.>/?!@#$%^&*() \n\t\r"
+	events, err := translator.Translate(s)
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	seen := map[translator.KeyCode]bool{}
+	for _, ev := range events {
+		if seen[ev.Key] {
+			continue
+		}
+		seen[ev.Key] = true
+		if _, ok := keyCodeMap[ev.Key]; !ok {
+			t.Errorf("no evdev mapping for key %d", ev.Key)
+		}
+	}
+}
 func TestUinputPasteIntegration(t *testing.T) {
 	inj, err := New()
 	if err != nil {
@@ -38,5 +58,8 @@ func TestUinputPasteIntegration(t *testing.T) {
 	defer inj.Close()
 	if err := inj.Paste(); err != nil {
 		t.Fatalf("Paste: %v", err)
+	}
+	if err := inj.Type("Az09!~ \t"); err != nil {
+		t.Fatalf("Type: %v", err)
 	}
 }

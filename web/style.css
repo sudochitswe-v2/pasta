@@ -109,6 +109,29 @@ button#send {
 button#send:active { filter: brightness(0.92); }
 button#send:disabled { opacity: 0.55; cursor: wait; }
 
+.mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mode button {
+  min-height: 44px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.mode button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .hint {
   margin: 0;
   text-align: center;
