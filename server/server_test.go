@@ -295,3 +295,82 @@ func TestPasteAlias(t *testing.T) {
 		t.Fatalf("type via routes: status = %d, want 200", rec.Code)
 	}
 }
+
+type mockCapturer struct {
+	data []byte
+	err  error
+}
+
+func (m *mockCapturer) CapturePNG() ([]byte, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.data, nil
+}
+
+func TestScreenshotMethodNotAllowed(t *testing.T) {
+	s, _, _ := testServer(nil, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/screenshot", nil)
+	rec := httptest.NewRecorder()
+	s.HandleScreenshot(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", rec.Code)
+	}
+}
+
+func TestScreenshotUnavailable(t *testing.T) {
+	s, _, _ := testServer(nil, nil) // capturer is nil
+	req := httptest.NewRequest(http.MethodGet, "/api/screenshot", nil)
+	rec := httptest.NewRecorder()
+	s.HandleScreenshot(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestScreenshotFailure(t *testing.T) {
+	mc := &mockCapturer{err: errors.New("display closed")}
+	s := New(&mockClipboard{}, nil, Options{RateLimit: -1, Capturer: mc})
+	req := httptest.NewRequest(http.MethodGet, "/api/screenshot", nil)
+	rec := httptest.NewRecorder()
+	s.HandleScreenshot(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+}
+
+func TestScreenshotSuccess(t *testing.T) {
+	mockPNG := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
+	mc := &mockCapturer{data: mockPNG}
+	s := New(&mockClipboard{}, nil, Options{RateLimit: -1, Capturer: mc})
+
+	// Test GET
+	req := httptest.NewRequest(http.MethodGet, "/api/screenshot", nil)
+	req.RemoteAddr = "192.168.1.10:1234"
+	rec := httptest.NewRecorder()
+	s.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+		t.Fatalf("Content-Type = %q, want image/png", ct)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", cc)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), mockPNG) {
+		t.Fatalf("body did not match mock PNG data")
+	}
+
+	// Test POST
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/screenshot", nil)
+	reqPost.RemoteAddr = "192.168.1.10:1234"
+	recPost := httptest.NewRecorder()
+	s.Routes().ServeHTTP(recPost, reqPost)
+	if recPost.Code != http.StatusOK {
+		t.Fatalf("POST status = %d, want 200", recPost.Code)
+	}
+	if !bytes.Equal(recPost.Body.Bytes(), mockPNG) {
+		t.Fatalf("body did not match mock PNG data")
+	}
+}

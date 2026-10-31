@@ -58,6 +58,7 @@ fail loudly with `400` naming the character — no silent drops.
 | `--no-inject` | off | Clipboard-only mode (disables `Ctrl+V` and `/api/type` → `503`) |
 | `--max-bytes` | `65536` | Max paste payload in bytes |
 | `--max-type-bytes` | `4096` | Max stealth-type payload (typing is paced ~2ms/event) |
+| `--tls` | off | Enable HTTPS with auto-generated self-signed certificate (required for Clipboard API on iOS Safari) |
 | `--qr`, `--setup` | off | Print the Magic Link QR for this LAN and exit (no daemon) |
 | `--verbose` | off | Request logging (stderr only — **no log files ever**) |
 
@@ -70,6 +71,8 @@ fail loudly with `400` naming the character — no silent drops.
 - `POST /api/sync` — backward-compatible alias of `/api/paste`
 - `POST /api/type` with `{"text":"…"}` → `{"success":true,"injected":true,"typed":8}`
   - `400` unsupported character · `413` over 4KB · `503` injection disabled · `500` device failure
+- `GET /api/screenshot` / `POST /api/screenshot` → raw `image/png` of current host screen
+  - `503` graphical session unavailable · `500` capture failure · `429` rate-limited
 
 ## Linux Prerequisites (for `/dev/uinput` auto-paste)
 

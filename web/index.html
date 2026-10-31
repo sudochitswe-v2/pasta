@@ -15,16 +15,37 @@
   </header>
 
   <label class="sr" for="text">Text to paste</label>
-  <textarea id="text" rows="8" placeholder="Type or paste text here…" autofocus autocomplete="off" autocapitalize="sentences"></textarea>
+  <textarea id="text" rows="8" placeholder="Type or paste text to stealth-type…" autofocus autocomplete="off" autocapitalize="sentences"></textarea>
 
-  <div class="mode" role="group" aria-label="Send mode">
-    <button id="mode-paste" type="button" class="active" aria-pressed="true">Fast Paste</button>
-    <button id="mode-type" type="button" aria-pressed="false">Stealth Type</button>
+  <div class="stealth-badge" title="Stealth Mode: Raw hardware keystrokes (clipboard is never touched)">
+    <span class="stealth-icon">🔒</span>
+    <span>Stealth Mode (Hardware Keystrokes)</span>
   </div>
 
-  <button id="send" type="button">Send&nbsp;⏎</button>
-  <p class="hint" id="hint">Ctrl+Enter to send · text appears at the host cursor</p>
+  <div class="action-row">
+    <button id="send" type="button">Send&nbsp;⏎</button>
+    <button id="btn-screenshot" type="button" class="btn-shot" title="Capture remote screen and copy to clipboard">Screenshot</button>
+  </div>
+  <p class="hint" id="hint">Ctrl+Enter to send · typed directly as hardware keystrokes (no clipboard)</p>
 </main>
+
+<div id="shot-modal" class="shot-modal" hidden>
+  <div class="shot-card">
+    <div class="shot-header">
+      <span class="shot-title">Remote Screenshot</span>
+      <button id="shot-close" type="button" class="shot-close" aria-label="Close preview">✕</button>
+    </div>
+    <div class="shot-preview" id="shot-preview">
+      <img id="shot-img" alt="Captured screen preview">
+    </div>
+    <p id="shot-hint" class="shot-hint">Touch &amp; hold image to Copy or Save</p>
+    <div class="shot-actions">
+      <button id="shot-copy" type="button" class="btn-action">Copy Image</button>
+      <button id="shot-share" type="button" class="btn-action" hidden>Share</button>
+      <a id="shot-dl" download="screenshot.png" class="btn-action btn-dl">Download</a>
+    </div>
+  </div>
+</div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

@@ -13,12 +13,14 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sudochitswe-v2/pasta/clipboard"
 	"github.com/sudochitswe-v2/pasta/injector"
+	"github.com/sudochitswe-v2/pasta/screenshot"
 	"github.com/sudochitswe-v2/pasta/translator"
 )
 
@@ -58,6 +60,8 @@ type Options struct {
 	Verbose bool
 	// Logger receives non-request log lines; nil means log.Default().
 	Logger *log.Logger
+	// Capturer captures the screen for GET/POST /api/screenshot; nil disables screenshots (returns 503).
+	Capturer screenshot.Capturer
 }
 
 func (o *Options) withDefaults() Options {
@@ -81,6 +85,7 @@ func (o *Options) withDefaults() Options {
 type Server struct {
 	clipboard clipboard.Clipboard
 	injector  injector.Injector
+	capturer  screenshot.Capturer
 	opts      Options
 	log       *log.Logger
 
@@ -104,7 +109,7 @@ func New(cb clipboard.Clipboard, inj injector.Injector, opts Options) *Server {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &Server{clipboard: cb, injector: inj, opts: o, log: logger, clients: make(map[string]*clientState)}
+	return &Server{clipboard: cb, injector: inj, capturer: o.Capturer, opts: o, log: logger, clients: make(map[string]*clientState)}
 }
 
 type syncRequest struct {
@@ -269,6 +274,32 @@ func (s *Server) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// HandleScreenshot serves GET and POST /api/screenshot requests.
+func (s *Server) HandleScreenshot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, syncResponse{Error: "method not allowed"})
+		return
+	}
+	if !s.allow(clientIP(r)) {
+		writeJSON(w, http.StatusTooManyRequests, syncResponse{Error: "rate limit exceeded"})
+		return
+	}
+	if s.capturer == nil {
+		writeJSON(w, http.StatusServiceUnavailable, syncResponse{Error: "screenshot unavailable"})
+		return
+	}
+	pngBytes, err := s.capturer.CapturePNG()
+	if err != nil {
+		s.log.Printf("screenshot error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, syncResponse{Error: "failed to capture screenshot"})
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Length", strconv.Itoa(len(pngBytes)))
+	_, _ = w.Write(pngBytes)
+}
+
 // Routes returns the API handler tree (static UI is served by main),
 // wrapped in auth when Options.Token is set.
 func (s *Server) Routes() http.Handler {
@@ -277,5 +308,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/paste", s.HandleSync)
 	mux.HandleFunc("/api/type", s.HandleType)
 	mux.HandleFunc("/api/health", s.HandleHealth)
+	mux.HandleFunc("/api/screenshot", s.HandleScreenshot)
 	return AuthMiddleware(s.opts.Token, mux)
 }

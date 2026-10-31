@@ -7,10 +7,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"embed"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -25,6 +28,7 @@ import (
 	"github.com/mdp/qrterminal/v3"
 	"github.com/sudochitswe-v2/pasta/clipboard"
 	"github.com/sudochitswe-v2/pasta/injector"
+	"github.com/sudochitswe-v2/pasta/screenshot"
 	"github.com/sudochitswe-v2/pasta/server"
 )
 
@@ -46,13 +50,14 @@ func run() error {
 		noInject     = flag.Bool("no-inject", false, "clipboard-only mode: skip Ctrl+V keystroke injection")
 		maxBytes     = flag.Int("max-bytes", server.DefaultMaxTextBytes, "max paste payload in bytes")
 		maxTypeBytes = flag.Int("max-type-bytes", server.DefaultMaxTypeBytes, "max stealth-type payload in bytes")
+		tlsMode      = flag.Bool("tls", false, "enable HTTPS with auto-generated self-signed certificate (required for Clipboard API on iOS Safari)")
 		qr           = flag.Bool("qr", false, "print a Magic Link QR for this LAN and exit (no daemon)")
 		setup        = flag.Bool("setup", false, "alias of --qr")
 	)
 	flag.Parse()
 
 	if *qr || *setup {
-		return runQR(*port)
+		return runQR(*port, *tlsMode)
 	}
 
 	token, err := loadOrCreateToken()
@@ -91,12 +96,21 @@ func run() error {
 		defer inj.Close()
 	}
 
+	capturer, err := screenshot.New()
+	if err != nil {
+		fmt.Printf("pasta: screenshot capturer unavailable: %v\n", err)
+		capturer = nil
+	} else {
+		fmt.Printf("pasta: screenshot capturer ready\n")
+	}
+
 	srv := server.New(cb, inj, server.Options{
 		MaxTextBytes: *maxBytes,
 		MaxTypeBytes: *maxTypeBytes,
 		NoInject:     *noInject,
 		Verbose:      *verbose,
 		Token:        token,
+		Capturer:     capturer,
 	})
 
 	mux := http.NewServeMux()
@@ -120,15 +134,85 @@ func run() error {
 		_ = httpSrv.Shutdown(ctx)
 	}()
 
-	if *bind == "0.0.0.0" {
-		fmt.Printf("pasta: listening on 0.0.0.0:%d (all interfaces) — run `pasta --qr` to get the current Magic Link for this network\n", *port)
-	} else {
-		fmt.Printf("pasta: listening on http://%s\n", addr)
+	certFile, keyFile, err := loadOrCreateTLSCert()
+	var tlsCfg *tls.Config
+	if err == nil {
+		if cert, err := tls.LoadX509KeyPair(certFile, keyFile); err == nil {
+			tlsCfg = &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			}
+		}
 	}
-	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+
+	var srvLn net.Listener = ln
+	if tlsCfg != nil {
+		srvLn = &dualListener{Listener: ln, tlsConfig: tlsCfg}
+		if *bind == "0.0.0.0" {
+			fmt.Printf("pasta: listening on 0.0.0.0:%d (HTTP + HTTPS) — run `pasta --qr` for the Magic Link\n", *port)
+		} else {
+			fmt.Printf("pasta: listening on http://%s and https://%s\n", addr, addr)
+		}
+	} else {
+		if *bind == "0.0.0.0" {
+			fmt.Printf("pasta: listening on 0.0.0.0:%d (HTTP) — run `pasta --qr` for the Magic Link\n", *port)
+		} else {
+			fmt.Printf("pasta: listening on http://%s\n", addr)
+		}
+	}
+
+	if err := httpSrv.Serve(srvLn); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("serve: %w", err)
 	}
 	return nil
+}
+
+type sniffConn struct {
+	net.Conn
+	reader io.Reader
+}
+
+func (s *sniffConn) Read(p []byte) (int, error) {
+	return s.reader.Read(p)
+}
+
+type dualListener struct {
+	net.Listener
+	tlsConfig *tls.Config
+}
+
+func (l *dualListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+
+	header := make([]byte, 1)
+	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	n, err := io.ReadFull(c, header)
+	_ = c.SetReadDeadline(time.Time{})
+
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+
+	combined := &sniffConn{
+		Conn:   c,
+		reader: io.MultiReader(bytes.NewReader(header[:n]), c),
+	}
+
+	// 0x16 is the TLS handshake record type (ClientHello)
+	if header[0] == 0x16 {
+		return tls.Server(combined, l.tlsConfig), nil
+	}
+
+	// Plain HTTP connection
+	return combined, nil
 }
 
 var contentTypes = map[string]string{
@@ -186,13 +270,17 @@ func lanIP() (string, error) {
 }
 
 // magicLink builds the authenticated URL encoded in the --qr output.
-func magicLink(ip string, port int, token string) string {
-	return fmt.Sprintf("http://%s:%d/?token=%s", ip, port, token)
+func magicLink(ip string, port int, token string, useTLS ...bool) string {
+	scheme := "http"
+	if len(useTLS) > 0 && useTLS[0] {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s:%d/?token=%s", scheme, ip, port, token)
 }
 
 // runQR prints the Magic Link QR for the current network and exits without
 // touching the clipboard, injector, or HTTP server.
-func runQR(port int) error {
+func runQR(port int, useTLS ...bool) error {
 	token, err := loadOrCreateToken()
 	if err != nil {
 		return err
@@ -201,8 +289,15 @@ func runQR(port int) error {
 	if err != nil {
 		return err
 	}
-	link := magicLink(ip, port, token)
-	fmt.Printf("pasta: Magic Link (same Wi-Fi):\n%s\n\n", link)
+	tlsEnabled := len(useTLS) > 0 && useTLS[0]
+	link := magicLink(ip, port, token, tlsEnabled)
+	if tlsEnabled {
+		fmt.Printf("pasta: HTTPS Magic Link (iOS Safari 1-tap clipboard):\n%s\n\n", link)
+	} else {
+		fmt.Printf("pasta: Magic Link (same Wi-Fi):\n%s\n\n", link)
+		httpsLink := magicLink(ip, port, token, true)
+		fmt.Printf("pasta: HTTPS Link (for iOS Safari 1-tap clipboard):\n%s\n\n", httpsLink)
+	}
 	qrterminal.GenerateWithConfig(link, qrterminal.Config{
 		Level:      qrterminal.M,
 		Writer:     os.Stdout,

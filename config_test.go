@@ -73,6 +73,25 @@ func TestMagicLink(t *testing.T) {
 	if want := "http://192.168.1.10:8765/?token=abc123"; link != want {
 		t.Fatalf("link = %q, want %q", link, want)
 	}
+
+	linkTLS := magicLink("192.168.1.10", 8765, "abc123", true)
+	if want := "https://192.168.1.10:8765/?token=abc123"; linkTLS != want {
+		t.Fatalf("linkTLS = %q, want %q", linkTLS, want)
+	}
+}
+
+func TestLoadOrCreateTLSCert(t *testing.T) {
+	tempConfigEnv(t)
+	certPath, keyPath, err := loadOrCreateTLSCert()
+	if err != nil {
+		t.Fatalf("loadOrCreateTLSCert failed: %v", err)
+	}
+	if _, err := os.Stat(certPath); err != nil {
+		t.Fatalf("cert file missing: %v", err)
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Fatalf("key file missing: %v", err)
+	}
 }
 
 func TestLanIPLooksV4(t *testing.T) {
