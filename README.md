@@ -9,17 +9,40 @@ bypass clipboard-blocking and secure apps).
 - **Platforms:** Linux (X11 via CGO, `/dev/uinput` injector) & Windows 10/11 (`user32.dll` syscalls, optional KMDF driver backend)
 - **Constraint:** zero subprocess spawning — all OS interaction through native APIs
 
-## Quick start
+## Installation
+
+### One-Line Install (Recommended)
+
+Install Pasta directly from GitHub without cloning or building:
+
+**Linux:**
+```sh
+curl -fsSL https://raw.githubusercontent.com/sudochitswe-v2/pasta/master/install.sh | bash
+```
+> Installs the daemon to `~/.local/bin/pasta`, creates and starts a `systemd` user service with your session's active display (`DISPLAY` / `WAYLAND_DISPLAY`), and displays your phone pairing QR code.
+
+**Windows 10/11 (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/sudochitswe-v2/pasta/master/install.ps1 | iex
+```
+> Installs `pasta.exe` and `pasta-cli.exe` to `%LOCALAPPDATA%\Pasta`, adds it to user `PATH`, registers background auto-start at logon via the registry, launches the background daemon, and displays your pairing QR code.
+
+---
+
+## Build from Source (Alternative)
 
 ```sh
+git clone https://github.com/sudochitswe-v2/pasta.git
+cd pasta
 make build-linux        # -> bin/pasta  (stripped)
 ./bin/pasta --port 8765 # serves UI on http://<lan-ip>:8765
 ```
 
-Open the printed URL on your phone, pick a mode, type, hit **Send**.
+Open the printed URL on your phone, type, hit **Send**.
 
+For Windows:
 ```powershell
-make build-windows      # -> bin\pasta.exe (stripped, no console window)
+make build-windows      # -> bin\pasta.exe & bin\pasta-cli.exe
 ```
 
 ## First run: pairing your phone (`--qr`)
@@ -202,7 +225,27 @@ pasta-cli --qr
 make test   # unit + integration (X11/uinput tests skip gracefully w/o display)
 make vet
 make run    # go run . --verbose
+make dist   # builds release archives in dist/
 ```
+
+## Releasing to GitHub
+
+Pasta includes an automated GitHub Actions release workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)).
+
+To publish a new GitHub Release with precompiled assets:
+
+1. **Tag and push a release version:**
+   ```sh
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+2. GitHub Actions will automatically:
+   - Build stripped binaries for Linux (`amd64`) and Windows (`amd64`).
+   - Package `pasta-linux-amd64.tar.gz` and `pasta-windows-amd64.zip`.
+   - Generate SHA-256 `checksums.txt`.
+   - Publish a new GitHub Release with these assets attached.
+
+Once published, the one-line installer scripts will automatically fetch the latest release archives.
 
 ## Layout
 

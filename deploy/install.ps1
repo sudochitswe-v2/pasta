@@ -2,11 +2,29 @@
 # the HKCU Run key. Run in PowerShell:
 #   powershell -ExecutionPolicy Bypass -File deploy\install.ps1
 param(
-  [string]$BinaryPath = "$PSScriptRoot\..\bin\pasta.exe",
-  [string]$CliBinaryPath = "$PSScriptRoot\..\bin\pasta-cli.exe"
+  [string]$BinaryPath = "",
+  [string]$CliBinaryPath = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $BinaryPath) {
+  if (Test-Path "$PSScriptRoot\pasta.exe") {
+    $BinaryPath = "$PSScriptRoot\pasta.exe"
+  } elseif (Test-Path "$PSScriptRoot\..\bin\pasta.exe") {
+    $BinaryPath = "$PSScriptRoot\..\bin\pasta.exe"
+  } else {
+    $BinaryPath = "$PSScriptRoot\..\bin\pasta.exe"
+  }
+}
+
+if (-not $CliBinaryPath) {
+  if (Test-Path "$PSScriptRoot\pasta-cli.exe") {
+    $CliBinaryPath = "$PSScriptRoot\pasta-cli.exe"
+  } elseif (Test-Path "$PSScriptRoot\..\bin\pasta-cli.exe") {
+    $CliBinaryPath = "$PSScriptRoot\..\bin\pasta-cli.exe"
+  }
+}
 
 if (-not (Test-Path $BinaryPath)) {
   Write-Error "Binary not found at $BinaryPath (run 'make build-windows' first)."
